@@ -1,0 +1,414 @@
+// Enterprise Sales CRM - Prisma Schema
+// Multi-tenant PostgreSQL Schema with comprehensive CRM entities
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Tenants (Multi-tenancy)
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String
+  domain    String?  @unique
+  plan      String   @default("starter")
+  settings  Json     @default("{}")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  users         User[]
+  roles         Role[]
+  accounts      Account[]
+  contacts      Contact[]
+  leads         Lead[]
+  opportunities Opportunity[]
+  activities    Activity[]
+  tasks         Task[]
+  notes         Note[]
+  salesStages   SalesStage[]
+  customFields  CustomField[]
+  auditLogs     AuditLog[]
+  integrations  Integration[]
+  webhooks      Webhook[]
+  workflowRules WorkflowRule[]
+
+  @@map("tenants")
+}
+
+// Users
+model User {
+  id           String    @id @default(uuid())
+  tenantId     String    @map("tenant_id")
+  email        String
+  passwordHash String?   @map("password_hash")
+  firstName    String?   @map("first_name")
+  lastName     String?   @map("last_name")
+  roleId       String?   @map("role_id")
+  ssoId        String?   @map("sso_id")
+  avatarUrl    String?   @map("avatar_url")
+  phone        String?
+  timezone     String    @default("UTC")
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLogin    DateTime? @map("last_login")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  tenant              Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  role                Role?         @relation(fields: [roleId], references: [id])
+  ownedAccounts       Account[]     @relation("AccountOwner")
+  ownedContacts       Contact[]     @relation("ContactOwner")
+  ownedLeads          Lead[]        @relation("LeadOwner")
+  ownedOpportunities  Opportunity[] @relation("OpportunityOwner")
+  activities          Activity[]
+  assignedTasks       Task[]        @relation("TaskAssignee")
+  createdTasks        Task[]        @relation("TaskCreator")
+  notes               Note[]
+  auditLogs           AuditLog[]
+
+  @@unique([tenantId, email])
+  @@map("users")
+}
+
+// Roles (RBAC)
+model Role {
+  id           String  @id @default(uuid())
+  tenantId     String  @map("tenant_id")
+  name         String
+  description  String?
+  permissions  Json    @default("{}")
+  isSystemRole Boolean @default(false) @map("is_system_role")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users  User[]
+
+  @@unique([tenantId, name])
+  @@map("roles")
+}
+
+// Accounts (Companies)
+model Account {
+  id              String   @id @default(uuid())
+  tenantId        String   @map("tenant_id")
+  name            String
+  website         String?
+  industry        String?
+  accountType     String   @default("prospect") @map("account_type")
+  revenue         BigInt?
+  employeeCount   Int?     @map("employee_count")
+  addressLine1    String?  @map("address_line1")
+  addressLine2    String?  @map("address_line2")
+  city            String?
+  state           String?
+  postalCode      String?  @map("postal_code")
+  country         String?
+  phone           String?
+  ownerId         String?  @map("owner_id")
+  parentAccountId String?  @map("parent_account_id")
+  customFields    Json     @default("{}") @map("custom_fields")
+  tags            String[]
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  owner          User?         @relation("AccountOwner", fields: [ownerId], references: [id])
+  parentAccount  Account?      @relation("AccountHierarchy", fields: [parentAccountId], references: [id])
+  childAccounts  Account[]     @relation("AccountHierarchy")
+  contacts       Contact[]
+  opportunities  Opportunity[]
+
+  @@map("accounts")
+}
+
+// Contacts
+model Contact {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  accountId    String?  @map("account_id")
+  firstName    String   @map("first_name")
+  lastName     String   @map("last_name")
+  email        String?
+  phone        String?
+  mobile       String?
+  title        String?
+  department   String?
+  linkedinUrl  String?  @map("linkedin_url")
+  ownerId      String?  @map("owner_id")
+  isPrimary    Boolean  @default(false) @map("is_primary")
+  leadSource   String?  @map("lead_source")
+  customFields Json     @default("{}") @map("custom_fields")
+  tags         String[]
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  tenant       Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account      Account? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  owner        User?    @relation("ContactOwner", fields: [ownerId], references: [id])
+  convertedFromLeads Lead[] @relation("LeadConvertedContact")
+
+  @@map("contacts")
+}
+
+// Sales Stages
+model SalesStage {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  name         String
+  probability  Int      @default(0)
+  stageOrder   Int      @map("stage_order")
+  isClosedWon  Boolean  @default(false) @map("is_closed_won")
+  isClosedLost Boolean  @default(false) @map("is_closed_lost")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  opportunities Opportunity[]
+
+  @@unique([tenantId, stageOrder])
+  @@map("sales_stages")
+}
+
+// Leads
+model Lead {
+  id                      String    @id @default(uuid())
+  tenantId                String    @map("tenant_id")
+  firstName               String?   @map("first_name")
+  lastName                String?   @map("last_name")
+  email                   String?
+  phone                   String?
+  company                 String?
+  title                   String?
+  source                  String?
+  status                  String    @default("new")
+  rating                  String?
+  convertedAccountId      String?   @map("converted_account_id")
+  convertedContactId      String?   @map("converted_contact_id")
+  convertedOpportunityId  String?   @map("converted_opportunity_id")
+  ownerId                 String?   @map("owner_id")
+  customFields            Json      @default("{}") @map("custom_fields")
+  tags                    String[]
+  isConverted             Boolean   @default(false) @map("is_converted")
+  convertedAt             DateTime? @map("converted_at")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  tenant               Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  owner                User?        @relation("LeadOwner", fields: [ownerId], references: [id])
+  convertedAccount     Account?     @relation(fields: [convertedAccountId], references: [id])
+  convertedContact     Contact?     @relation("LeadConvertedContact", fields: [convertedContactId], references: [id])
+  convertedOpportunity Opportunity? @relation(fields: [convertedOpportunityId], references: [id])
+
+  @@map("leads")
+}
+
+// Opportunities
+model Opportunity {
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  accountId        String    @map("account_id")
+  name             String
+  amount           Decimal?  @db.Decimal(15, 2)
+  stageId          String    @map("stage_id")
+  probability      Int       @default(0)
+  expectedCloseDate DateTime? @map("expected_close_date") @db.Date
+  actualCloseDate  DateTime? @map("actual_close_date") @db.Date
+  leadSource       String?   @map("lead_source")
+  campaignId       String?   @map("campaign_id")
+  ownerId          String?   @map("owner_id")
+  customFields     Json      @default("{}") @map("custom_fields")
+  tags             String[]
+  isActive         Boolean   @default(true) @map("is_active")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  tenant            Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account           Account    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  stage             SalesStage @relation(fields: [stageId], references: [id])
+  owner             User?      @relation("OpportunityOwner", fields: [ownerId], references: [id])
+  convertedFromLeads Lead[]
+
+  @@map("opportunities")
+}
+
+// Activities (emails, calls, meetings, notes)
+model Activity {
+  id          String    @id @default(uuid())
+  tenantId    String    @map("tenant_id")
+  userId      String    @map("user_id")
+  type        String    // email, call, meeting, note, task
+  subject     String?
+  description String?
+  duration    Int?      // in minutes
+  status      String    @default("completed")
+  priority    String    @default("medium")
+  dueDate     DateTime? @map("due_date")
+  completedAt DateTime? @map("completed_at")
+  parentType  String?   @map("parent_type") // account, contact, opportunity, lead
+  parentId    String?   @map("parent_id")
+  metadata    Json      @default("{}")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@map("activities")
+}
+
+// Tasks
+model Task {
+  id          String    @id @default(uuid())
+  tenantId    String    @map("tenant_id")
+  assignedTo  String    @map("assigned_to")
+  assignedBy  String?   @map("assigned_by")
+  subject     String
+  description String?
+  dueDate     DateTime? @map("due_date")
+  priority    String    @default("medium")
+  status      String    @default("open")
+  parentType  String?   @map("parent_type")
+  parentId    String?   @map("parent_id")
+  completedAt DateTime? @map("completed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  tenant     Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assignee   User   @relation("TaskAssignee", fields: [assignedTo], references: [id])
+  creator    User?  @relation("TaskCreator", fields: [assignedBy], references: [id])
+
+  @@map("tasks")
+}
+
+// Notes
+model Note {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  authorId   String   @map("author_id")
+  parentType String   @map("parent_type")
+  parentId   String   @map("parent_id")
+  content    String
+  isPrivate  Boolean  @default(false) @map("is_private")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  author User   @relation(fields: [authorId], references: [id])
+
+  @@map("notes")
+}
+
+// Custom Fields
+model CustomField {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  entityType String   @map("entity_type") // account, contact, lead, opportunity
+  fieldKey   String   @map("field_key")
+  fieldLabel String   @map("field_label")
+  fieldType  String   @map("field_type") // text, number, date, boolean, picklist
+  config     Json     @default("{}")
+  isRequired Boolean  @default(false) @map("is_required")
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, entityType, fieldKey])
+  @@map("custom_fields")
+}
+
+// Audit Logs (immutable)
+model AuditLog {
+  id           String    @id @default(uuid())
+  tenantId     String    @map("tenant_id")
+  userId       String?   @map("user_id")
+  action       String    // CREATE, UPDATE, DELETE, LOGIN, etc.
+  resourceType String    @map("resource_type")
+  resourceId   String?   @map("resource_id")
+  beforeData   Json?     @map("before_data")
+  afterData    Json?     @map("after_data")
+  ipAddress    String?   @map("ip_address")
+  userAgent    String?   @map("user_agent")
+  timestamp    DateTime  @default(now())
+
+  // Relations
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User?  @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
+
+// Integrations
+model Integration {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  name      String
+  type      String   // email, calendar, telephony, etc.
+  config    Json
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("integrations")
+}
+
+// Webhooks
+model Webhook {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  name      String
+  url       String
+  events    String[]
+  secret    String?
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("webhooks")
+}
+
+// Workflow Rules (automation)
+model WorkflowRule {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  name         String
+  entityType   String   @map("entity_type")
+  triggerEvent String   @map("trigger_event") // create, update, delete
+  conditions   Json
+  actions      Json
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("workflow_rules")
+}
